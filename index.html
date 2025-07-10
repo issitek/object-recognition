@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Reconocimiento de Objetos - EfficientDet</title>
+  <style>
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: auto;
+    }
+    #log {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 10px;
+      font-family: sans-serif;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+<div id="log">Cargando modelo...</div>
+<video id="video" autoplay muted playsinline></video>
+<canvas id="canvas"></canvas>
+
+<script type="module">
+  import {
+    ObjectDetector,
+    FilesetResolver
+  } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
+
+  const log = document.getElementById('log');
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let objectDetector;
+  let running = true;
+
+  async function init() {
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    );
+
+    objectDetector = await ObjectDetector.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: "./models/efficientdet_lite0.tflite",  // ⚠️ Modelo descargado localmente
+        delegate: "CPU"
+      },
+      scoreThreshold: 0.5,
+      runningMode: "VIDEO"
+    });
+
+    log.innerText = 'Modelo cargado. Iniciando cámara...';
+    startCamera();
+  }
+
+  function startCamera() {
+    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+      video.srcObject = stream;
+      video.addEventListener('loadeddata', () => {
+        console.log("Video cargado con dimensiones:", video.videoWidth, video.videoHeight);
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        detectFrame();
+      });
+    }).catch(err => {
+      log.innerText = 'Error al iniciar cámara: ' + err;
+    });
+  }
+
+  async function detectFrame() {
+    if (!running) return;
+
+    const nowInMs = Date.now();
+
+    const result = await objectDetector.detectForVideo(video, nowInMs);
+    console.log("detecciones saqui", result)
+    drawDetections(result);
+
+    requestAnimationFrame(detectFrame);
+  }
+
+  function drawDetections(result) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    console.log("Detecciones recibidas:", result);
+
+    if (!result.detections || result.detections.length === 0) {
+      log.innerHTML = 'Sin objetos detectados';
+      return;
+    }
+
+    log.innerHTML = '';
+
+    result.detections.forEach((det) => {
+      const box = det.boundingBox;
+      const category = det.categories[0];
+      const x = box.originX;
+      const y = box.originY;
+      const width = box.width;
+      const height = box.height;
+
+      console.log("Objeto detectado:", category.categoryName, category.score);
+
+      ctx.strokeStyle = '#00FF00';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, width, height);
+
+      // Asegurar fuente visible
+      ctx.font = "16px sans-serif";
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(x, y - 20, ctx.measureText(category.categoryName).width + 40, 20);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(`${category.categoryName} (${(category.score * 100).toFixed(1)}%)`, x + 5, y - 5);
+
+      log.innerHTML += `${category.categoryName} (${(category.score * 100).toFixed(1)}%)<br>`;
+    });
+  }
+
+  init();
+</script>
+
+</body>
+</html>
